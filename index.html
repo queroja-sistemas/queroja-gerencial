@@ -3750,7 +3750,7 @@
       'Clientes': { table:'CLIENTES', icon:'👥', fields:['NOME','TELEFONE','WHATSAPP','CEP','ENDERECO','NUMERO','COMPLEMENTO','BAIRRO','CIDADE'] },
       'Formas de pagamento': { table:'FORMAS_PAGAMENTO', icon:'💳', fields:['NOME','ATIVO'] },
       'Formas de entrega': { table:'FORMAS_ENTREGA', icon:'🛵', fields:['NOME','VALOR','ATIVO'] },
-      'Cupons': { table:'CUPONS', icon:'🎟️', fields:['CODIGO','TIPO_DESCONTO','VALOR_DESCONTO','ATIVO','OBSERVACAO'] }
+      'Cupons': { table:'CUPONS', icon:'🎟️', fields:['CODIGO','TIPO_DESCONTO','VALOR_DESCONTO','DATA_INICIO','DATA_FIM','ATIVO','OBSERVACAO'] }
     };
 
     const TIPO_DESCONTO_OPCOES = [
@@ -3765,10 +3765,16 @@
     function normKey(k){ return String(k||'').toUpperCase(); }
     function prettyField(k){ return String(k).replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()); }
     function isSystemField(k){ return ['ID','CREATED_AT','UPDATED_AT','CRIADO_EM'].includes(normKey(k)); }
-    function isBoolField(k){ return ['ATIVO','ABERTO','DISPONIVEL','HABILITADO','USADO'].includes(normKey(k)); }
+    function isBoolField(k){ return ['ATIVO','ABERTO','DISPONIVEL','HABILITADO'].includes(normKey(k)); }
     function isNumberField(k){ return ['PRECO','VALOR','TOTAL','TAXA','ESTOQUE','QUANTIDADE'].some(x=>normKey(k).includes(x)); }
     function isSelectField(k){ return normKey(k)==='TIPO_DESCONTO'; }
     function selectOptionsFor(k){ return isSelectField(k) ? TIPO_DESCONTO_OPCOES : []; }
+    function isDateField(k){ return ['DATA_INICIO','DATA_FIM'].includes(normKey(k)); }
+    function formatDateBR(v){
+      const s=String(v||'').slice(0,10);
+      const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m?(m[3]+'/'+m[2]+'/'+m[1]):(v??'');
+    }
     function isImageField(k){ const n=normKey(k); return n.includes('IMAGEM') || n.includes('FOTO') || n.includes('IMAGE') || n.includes('PICTURE'); }
     function encontrarCampoImagem(fields){ return (fields||[]).find(isImageField) || null; }
 
@@ -3799,6 +3805,11 @@
         const opts=selectOptionsFor(f).map(o=>'<option value="'+escapeHtml(o.value)+'">'+escapeHtml(o.label)+'</option>').join('');
         return '<label class="crud-field">'+escapeHtml(prettyField(f))+'<select name="'+escapeHtml(f)+'"><option value="">Selecione</option>'+opts+'</select></label>';
       }
+      if(isDateField(f)){
+        const rotulos={DATA_INICIO:'Válido a partir de (opcional)',DATA_FIM:'Válido até (opcional)'};
+        const rotulo=rotulos[normKey(f)]||prettyField(f);
+        return '<label class="crud-field">'+escapeHtml(rotulo)+'<input type="date" name="'+escapeHtml(f)+'"><small style="font-weight:400;color:var(--cinza);">Deixe em branco para não limitar</small></label>';
+      }
       const type=isBoolField(f)?'checkbox':(isNumberField(f)?'number':'text');
       const step=isNumberField(f)?' step="0.01"':'';
       const styleExtra=normKey(f)==='CODIGO'?' style="text-transform:uppercase"':'';
@@ -3826,6 +3837,7 @@
         if(isNaN(num))return v??'';
         return tipo==='PERCENTUAL'?(num+'%'):('R$ '+num.toFixed(2).replace('.',','));
       }
+      if(isDateField(k)) return v?formatDateBR(v):'—';
       return isBoolField(k)?(v?'Sim':'Não'):(v??'');
     }
 
@@ -3934,6 +3946,7 @@
           valor = el.value.trim();
           if (normKey(chaveReal) === 'CODIGO') valor = valor.toUpperCase();
           if (isNumberField(chaveReal) && valor !== '') valor = Number(String(valor).replace(',', '.'));
+          if (isDateField(chaveReal) && valor === '') valor = null;
         }
         payload[chaveReal] = valor;
       });
