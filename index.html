@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-  <title>KUKI Gerencial</title>
+  <title>QueroJá Gerencial</title>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -1048,12 +1048,12 @@
     <div class="login-card">
 
       <img
-        src="logo-kuki-transparente.png"
-        alt="KUKI Cookies"
+        src="logo-queroja-transparente.png"
+        alt="QueroJá"
         class="login-logo"
       >
 
-      <h1 class="login-title">KUKI GERENCIAL</h1>
+      <h1 class="login-title">QUEROJÁ GERENCIAL</h1>
 
       <p class="login-subtitle">
         Acesse o sistema de gerenciamento da loja
@@ -1114,7 +1114,7 @@
 
       <div class="sidebar-welcome">
         <strong>Bem-vindo! 🍪</strong>
-        <span>Gerencie sua KUKI, acompanhe os pedidos e mantenha a loja sempre atualizada.</span>
+        <span>Gerencie sua loja QueroJá, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
       </div>
 
       <nav class="menu">
@@ -1200,8 +1200,8 @@
         </button>
 
         <img
-          src="logo-kuki-transparente.png"
-          alt="KUKI"
+          src="logo-queroja-transparente.png"
+          alt="QueroJá"
         >
 
         <button onclick="logout()">
@@ -1552,6 +1552,25 @@
         }
       } catch (e) {
         console.warn('Não foi possível obter a sessão do Supabase:', e);
+      }
+
+      // Todo INSERT (POST) precisa levar o loja_id da loja logada — as
+      // tabelas ganharam essa coluna como NOT NULL na migração multi-tenant.
+      // Exceção: tabelas isoladas via relação (ITENS_PEDIDO, CUPOM_USOS) não
+      // têm essa coluna e não devem recebê-la.
+      const method = (options.method || 'GET').toUpperCase();
+      if (method === 'POST' && !TABELAS_SEM_LOJA_ID.has(table) && options.body) {
+        try {
+          const parsedBody = JSON.parse(options.body);
+          if (Array.isArray(parsedBody)) {
+            parsedBody.forEach(item => { if (item && item.loja_id === undefined) item.loja_id = MEU_LOJA_ID; });
+          } else if (parsedBody && parsedBody.loja_id === undefined) {
+            parsedBody.loja_id = MEU_LOJA_ID;
+          }
+          options = { ...options, body: JSON.stringify(parsedBody) };
+        } catch (e) {
+          console.warn('Não foi possível anexar loja_id ao corpo da requisição:', e);
+        }
       }
 
       const headers = {
@@ -2205,7 +2224,7 @@
 
       if ('Notification' in window && Notification.permission === 'granted') {
         try {
-          new Notification('KUKI Gerencial', {
+          new Notification('QueroJá Gerencial', {
             body: mensagem,
             tag: 'kuki-novo-pedido'
           });
@@ -4273,10 +4292,32 @@
     /* =====================================================
        ABRIR SISTEMA / LOGOUT
     ====================================================== */
+    let MEU_LOJA_ID = null;
+
+    // Tabelas isoladas via relação com outra tabela (não têm coluna
+    // loja_id própria) — não devem receber esse campo nos inserts.
+    const TABELAS_SEM_LOJA_ID = new Set(['ITENS_PEDIDO', 'itens_pedido', 'CUPOM_USOS', 'cupom_usos']);
+
+    async function obterMeuLojaId(userId) {
+      try {
+        const { data, error } = await supabaseClient
+          .from('usuarios')
+          .select('loja_id')
+          .eq('id', userId)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return data.loja_id;
+      } catch (e) {
+        console.warn('Não foi possível obter a loja do usuário:', e);
+      }
+      return null;
+    }
+
     async function abrirSistema(user, restaurandoSessao=false) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       document.getElementById('userName').textContent = await obterNomeUsuarioPorEmail(user.email);
+      MEU_LOJA_ID = await obterMeuLojaId(user.id);
 
       // F5/reabertura mantém a sessão enquanto ainda estiver dentro da janela
       // de 1 hora. Um novo login também reinicia essa janela.
