@@ -196,16 +196,43 @@
     }
 
     .sidebar-logo {
-      padding: 10px 15px 28px;
+      padding: 10px 15px 20px;
       text-align: center;
+      position: relative;
     }
 
     .sidebar-logo img {
-      width: 160px;
+      width: 120px;
+      height: 120px;
+      object-fit: contain;
       max-width: 100%;
       background: #fff8f2;
       border-radius: 14px;
       padding: 8px;
+    }
+
+    .sidebar-logo-nome {
+      margin-top: 10px;
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      word-break: break-word;
+    }
+
+    .sidebar-logo-trocar {
+      display: inline-block;
+      margin-top: 6px;
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.75);
+      font-size: 12px;
+      text-decoration: underline;
+      cursor: pointer;
+      padding: 2px 4px;
+    }
+
+    .sidebar-logo-trocar:hover {
+      color: #fff;
     }
 
     .sidebar-title {
@@ -1112,9 +1139,16 @@
 
     <aside class="sidebar" id="mainMenu">
 
+      <div class="sidebar-logo">
+        <img id="sidebarLojaLogo" src="logo-queroja-transparente.png" alt="Logo da loja">
+        <div class="sidebar-logo-nome" id="sidebarLojaNome"></div>
+        <button type="button" class="sidebar-logo-trocar" id="sidebarTrocarLogo">Trocar logo</button>
+        <input type="file" id="sidebarLogoInput" accept="image/*" style="display:none">
+      </div>
+
       <div class="sidebar-welcome">
         <strong>Bem-vindo! 🍪</strong>
-        <span>Gerencie sua loja QueroJá, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
+        <span id="sidebarWelcomeTexto">Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
       </div>
 
       <nav class="menu">
@@ -4313,11 +4347,64 @@
       return null;
     }
 
+    async function carregarBrandingDaLoja(){
+      const logoImg = document.getElementById('sidebarLojaLogo');
+      const nomeEl = document.getElementById('sidebarLojaNome');
+      const welcomeEl = document.getElementById('sidebarWelcomeTexto');
+      if(!MEU_LOJA_ID){
+        welcomeEl.textContent = 'Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.';
+        return;
+      }
+      try {
+        const { data, error } = await supabaseClient
+          .from('lojas').select('nome,logo_url').eq('id', MEU_LOJA_ID).maybeSingle();
+        if(error) throw error;
+        const nome = (data && data.nome) || '';
+        if(data && data.logo_url) logoImg.src = data.logo_url;
+        nomeEl.textContent = nome;
+        welcomeEl.textContent = nome
+          ? `Gerencie sua loja ${nome}, acompanhe os pedidos e mantenha tudo sempre atualizado.`
+          : 'Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.';
+      } catch(e) {
+        console.warn('Não foi possível carregar os dados da loja:', e);
+      }
+    }
+
+    document.getElementById('sidebarTrocarLogo').addEventListener('click', () => {
+      document.getElementById('sidebarLogoInput').click();
+    });
+    document.getElementById('sidebarLogoInput').addEventListener('change', async (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if(!file) return;
+      if(!file.type || !file.type.startsWith('image/')) return showToast('Erro', 'Selecione um arquivo de imagem.');
+      if(file.size > MAX_PRODUTO_IMAGEM_BYTES) return showToast('Erro', 'A logo deve ter no máximo 5 MB.');
+      if(!MEU_LOJA_ID) return showToast('Erro', 'Não foi possível identificar sua loja.');
+      try {
+        const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g,'') || 'png';
+        const path = 'lojas/' + MEU_LOJA_ID + '-' + Date.now() + '.' + ext;
+        const { error: uploadError } = await supabaseClient.storage.from(KUKI_STORAGE_BUCKET)
+          .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+        if(uploadError) throw uploadError;
+        const publicData = supabaseClient.storage.from(KUKI_STORAGE_BUCKET).getPublicUrl(path);
+        const url = publicData && publicData.data ? publicData.data.publicUrl : '';
+        if(!url) throw new Error('Não foi possível obter a URL pública da imagem.');
+        const { error: rpcError } = await supabaseClient.rpc('atualizar_minha_loja', { p_logo_url: url });
+        if(rpcError) throw rpcError;
+        document.getElementById('sidebarLojaLogo').src = url;
+        showToast('Sucesso', 'Logo da loja atualizada.');
+      } catch(e) {
+        console.error('TROCAR LOGO:', e);
+        showToast('Erro ao trocar logo', e.message || 'Não foi possível enviar a imagem.');
+      }
+    });
+
     async function abrirSistema(user, restaurandoSessao=false) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       document.getElementById('userName').textContent = await obterNomeUsuarioPorEmail(user.email);
       MEU_LOJA_ID = await obterMeuLojaId(user.id);
+      await carregarBrandingDaLoja();
 
       // F5/reabertura mantém a sessão enquanto ainda estiver dentro da janela
       // de 1 hora. Um novo login também reinicia essa janela.
