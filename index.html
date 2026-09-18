@@ -1159,6 +1159,10 @@
           <span>🧾</span> Relatórios
         </button>
 
+        <button onclick="selectMenu(this, 'Configurações')">
+          <span>⚙️</span> Configurações
+        </button>
+
         <button id="menuLojasBtn" onclick="selectMenu(this, 'Lojas')" style="display:none">
           <span>🏬</span> Lojas
         </button>
@@ -4233,7 +4237,17 @@
     async function renderConfiguracoesModule() {
       const container = document.getElementById('moduleContent');
       if (!container) return;
-      container.innerHTML = '<div class="module-panel"><div class="module-toolbar"><div><h2>⚙️ Configurações</h2><p style="color:var(--cinza);margin-top:6px;">Informações públicas exibidas na página de pedidos da sua loja.</p></div></div><div class="crud-form-box"><form id="formConfiguracoesLoja" onsubmit="event.preventDefault(); salvarConfiguracoesLoja();"><div class="crud-grid"><label class="crud-field">Instagram da loja<input id="configInstagramUrl" type="url" maxlength="255" placeholder="https://www.instagram.com/sualoja"><small style="font-weight:400;color:var(--cinza);">Link completo do seu perfil. Aparece como botão no rodapé da página de pedidos do cliente final — fica oculto se ficar em branco.</small></label></div><div class="crud-actions"><button class="primary-button" type="submit">💾 Salvar</button></div></form></div></div>';
+      const logoAtual = MEU_LOJA_LOGO_URL || '';
+      container.innerHTML = '<div class="module-panel"><div class="module-toolbar"><div><h2>⚙️ Configurações</h2><p style="color:var(--cinza);margin-top:6px;">Informações públicas exibidas na página de pedidos da sua loja.</p></div></div><div class="crud-form-box"><form id="formConfiguracoesLoja" onsubmit="event.preventDefault(); salvarConfiguracoesLoja();"><div class="crud-grid">'
+        + '<label class="crud-field">Logo da loja'
+        + '<div style="display:flex;align-items:center;gap:14px;margin:6px 0 10px;">'
+        + '<img id="configLogoPreview" src="'+escapeHtml(logoAtual)+'" alt="Logo atual" style="width:64px;height:64px;border-radius:12px;object-fit:cover;border:1px solid var(--borda);background:#f2f2f2;'+(logoAtual?'':'display:none;')+'">'
+        + '<input id="configLogoArquivo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onchange="previewConfigLogo(this)">'
+        + '</div>'
+        + '<small style="font-weight:400;color:var(--cinza);">Aparece no topo da página de pedidos do cliente final. Selecione um arquivo para substituir a logo atual — se não escolher nada, a logo atual é mantida.</small>'
+        + '</label>'
+        + '<label class="crud-field">Instagram da loja<input id="configInstagramUrl" type="url" maxlength="255" placeholder="https://www.instagram.com/sualoja"><small style="font-weight:400;color:var(--cinza);">Link completo do seu perfil. Aparece como botão no rodapé da página de pedidos do cliente final — fica oculto se ficar em branco.</small></label>'
+        + '</div><div class="crud-actions"><button class="primary-button" type="submit">💾 Salvar</button></div></form></div></div>';
       try {
         const rows = await restRequest('CONFIGURACOES_LOJA', '?loja_id=eq.' + MEU_LOJA_ID + '&select=id,INSTAGRAM_URL&limit=1');
         const row = Array.isArray(rows) && rows.length ? rows[0] : null;
@@ -4246,11 +4260,40 @@
       }
     }
 
+    function previewConfigLogo(inputEl){
+      const preview = document.getElementById('configLogoPreview');
+      if (!preview || !inputEl.files || !inputEl.files[0]) return;
+      preview.src = URL.createObjectURL(inputEl.files[0]);
+      preview.style.display = '';
+    }
+
+    async function uploadLogoLoja(file){
+      if (!file) return null;
+      if (!file.type || !file.type.startsWith('image/')) throw new Error('O arquivo selecionado não é uma imagem válida.');
+      if (file.size > MAX_PRODUTO_IMAGEM_BYTES) throw new Error('A logo deve ter no máximo 5 MB.');
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = 'lojas/' + MEU_LOJA_ID + '-' + Date.now() + '.' + ext;
+      const { error } = await supabaseClient.storage.from(KUKI_STORAGE_BUCKET).upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+      if (error) throw new Error('Não foi possível enviar a logo para o Supabase Storage: ' + error.message);
+      const publicData = supabaseClient.storage.from(KUKI_STORAGE_BUCKET).getPublicUrl(path);
+      const url = publicData && publicData.data ? publicData.data.publicUrl : '';
+      if (!url) throw new Error('A logo foi enviada, mas o Supabase não retornou a URL pública.');
+      return url;
+    }
+
     async function salvarConfiguracoesLoja() {
       const input = document.getElementById('configInstagramUrl');
+      const logoInput = document.getElementById('configLogoArquivo');
       if (!input) return;
       const valor = input.value.trim();
       try {
+        const arquivoLogo = logoInput && logoInput.files && logoInput.files[0] ? logoInput.files[0] : null;
+        if (arquivoLogo) {
+          const novaLogoUrl = await uploadLogoLoja(arquivoLogo);
+          const { error: erroLogo } = await supabaseClient.rpc('atualizar_logo_loja', { p_logo_url: novaLogoUrl });
+          if (erroLogo) throw new Error(erroLogo.message || 'Não foi possível atualizar a logo da loja.');
+          MEU_LOJA_LOGO_URL = novaLogoUrl;
+        }
         if (configuracoesLojaRowId) {
           await restRequest('CONFIGURACOES_LOJA', '?id=eq.' + configuracoesLojaRowId, {
             method: 'PATCH',
@@ -4350,6 +4393,7 @@
     let MEU_LOJA_ID = null;
     let MEU_PERFIL = null;
     let MEU_LOJA_NOME = null;
+    let MEU_LOJA_LOGO_URL = null;
 
     // Tabelas isoladas via relação com outra tabela (não têm coluna
     // loja_id própria) — não devem receber esse campo nos inserts.
@@ -4380,10 +4424,12 @@
       MEU_LOJA_ID = loja_id;
       MEU_PERFIL = perfil;
       MEU_LOJA_NOME = null;
+      MEU_LOJA_LOGO_URL = null;
       if (MEU_LOJA_ID) {
         try {
-          const { data: lojaData } = await supabaseClient.from('lojas').select('nome').eq('id', MEU_LOJA_ID).maybeSingle();
+          const { data: lojaData } = await supabaseClient.from('lojas').select('nome, logo_url').eq('id', MEU_LOJA_ID).maybeSingle();
           if (lojaData && lojaData.nome) MEU_LOJA_NOME = lojaData.nome;
+          if (lojaData && lojaData.logo_url) MEU_LOJA_LOGO_URL = lojaData.logo_url;
         } catch (e) {
           console.warn('Não foi possível obter o nome da loja:', e);
         }
