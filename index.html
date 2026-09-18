@@ -1159,6 +1159,9 @@
           <span>🧾</span> Relatórios
         </button>
 
+        <button id="menuNovaLojaBtn" style="display:none;" onclick="selectMenu(this, 'Nova Loja')">
+          <span>🏬</span> Nova Loja
+        </button>
 
       </nav>
 
@@ -1527,6 +1530,12 @@
     atualizarData();
 
     const STATUS_PEDIDO_WEBHOOK_URL = 'https://n8n.rikasolucoes.com.br/webhook/kuki/status-pedido';
+    // Webhook n8n que cria a loja + usuário ADMIN dela (usa a service role
+    // do Supabase, por isso mora no n8n e não aqui no front). Só responde
+    // de verdade para quem estiver logado como super_admin.
+    const NOVA_LOJA_WEBHOOK_URL = 'https://n8n.rikasolucoes.com.br/webhook/queroja-nova-loja';
+    // Ajuste para a URL pública real do queroja-pedidos (GitHub Pages ou domínio próprio).
+    const URL_QUEROJA_PEDIDOS = 'https://queroja-sistemas.github.io/kuki-pedidos/';
 
     function getValue(obj, names, fallback='') {
       if (!obj) return fallback;
@@ -4213,6 +4222,87 @@
       }
     }
 
+    /* =====================================================
+       NOVA LOJA (só super_admin) — cadastro de tenant novo
+    ====================================================== */
+    function gerarSlugLoja(nome) {
+      return (nome || '')
+        .toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    }
+
+    function renderNovaLojaModule() {
+      const container = document.getElementById('moduleContent');
+      if (!container) return;
+      if (!SOU_SUPER_ADMIN) {
+        container.innerHTML = '<div class="module-panel empty-module"><div class="empty-state-icon">🔒</div><h2>Acesso restrito</h2><p style="margin-top:8px;">Este módulo é exclusivo da conta de suporte/administração.</p></div>';
+        return;
+      }
+      container.innerHTML = '<div class="module-panel">'
+        + '<div class="module-toolbar"><div><h2>🏬 Nova Loja</h2><p style="color:var(--cinza);margin-top:6px;">Cria a loja no banco, o usuário ADMIN dela e devolve o link do cardápio e as credenciais de login.</p></div></div>'
+        + '<div class="crud-form-box"><form id="formNovaLoja" onsubmit="event.preventDefault(); criarNovaLoja();">'
+        + '<div class="crud-grid">'
+        + '<label class="crud-field">Nome da loja<input id="novaLojaNome" type="text" maxlength="100" required placeholder="Ex.: Cookies da Ana" oninput="document.getElementById(\'novaLojaSlug\').value = gerarSlugLoja(this.value);"></label>'
+        + '<label class="crud-field">Slug (vai na URL: ?loja=)<input id="novaLojaSlug" type="text" maxlength="60" required placeholder="cookies-da-ana"></label>'
+        + '<label class="crud-field">WhatsApp da loja<input id="novaLojaWhatsapp" type="text" maxlength="20" placeholder="(88) 90000-0000"></label>'
+        + '<label class="crud-field">Nome do lojista (responsável)<input id="novaLojaNomeLojista" type="text" maxlength="100" required placeholder="Nome de quem vai logar"></label>'
+        + '<label class="crud-field">Usuário de login<input id="novaLojaUsuario" type="text" maxlength="50" required placeholder="ex.: cookiesdaana"></label>'
+        + '<label class="crud-field">E-mail de login<input id="novaLojaEmail" type="email" maxlength="150" required placeholder="lojista@exemplo.com"></label>'
+        + '</div>'
+        + '<div class="crud-actions"><button class="primary-button" type="submit" id="btnCriarNovaLoja">🏬 Criar loja</button></div>'
+        + '</form></div>'
+        + '<div id="novaLojaResultado"></div>'
+        + '</div>';
+    }
+
+    async function criarNovaLoja() {
+      const botao = document.getElementById('btnCriarNovaLoja');
+      const resultado = document.getElementById('novaLojaResultado');
+      const payload = {
+        nome: document.getElementById('novaLojaNome').value.trim(),
+        slug: gerarSlugLoja(document.getElementById('novaLojaSlug').value),
+        whatsapp: document.getElementById('novaLojaWhatsapp').value.trim(),
+        nome_lojista: document.getElementById('novaLojaNomeLojista').value.trim(),
+        usuario_lojista: normalizarUsuario(document.getElementById('novaLojaUsuario').value),
+        email_lojista: document.getElementById('novaLojaEmail').value.trim().toLowerCase()
+      };
+      if (!payload.nome || !payload.slug || !payload.nome_lojista || !payload.usuario_lojista || !payload.email_lojista) {
+        resultado.innerHTML = '<div class="status erro" style="margin-top:14px;padding:10px;border-radius:10px;background:#fff0f1;color:var(--vermelho);">❌ Preencha os campos obrigatórios.</div>';
+        return;
+      }
+      botao.disabled = true; botao.textContent = 'Criando...';
+      resultado.innerHTML = '';
+      try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Sessão expirada, faça login novamente.');
+        const resposta = await fetch(NOVA_LOJA_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+          body: JSON.stringify(payload)
+        });
+        const dados = await resposta.json().catch(() => ({}));
+        if (!resposta.ok || dados.erro) {
+          throw new Error(dados.mensagem || 'Não foi possível criar a loja.');
+        }
+        const linkCardapio = URL_QUEROJA_PEDIDOS + '?loja=' + encodeURIComponent(payload.slug);
+        resultado.innerHTML =
+          '<div class="crud-form-box" style="margin-top:16px;background:#e8f8ee;">'
+          + '<h3>✅ Loja criada!</h3>'
+          + '<p style="margin-top:10px;"><strong>Link do cardápio:</strong><br><a href="'+escapeHtml(linkCardapio)+'" target="_blank">'+escapeHtml(linkCardapio)+'</a></p>'
+          + '<p style="margin-top:10px;"><strong>Login do painel:</strong><br>Usuário: '+escapeHtml(payload.usuario_lojista)+'<br>Senha temporária: <code>'+escapeHtml(dados.senha_temporaria || '(veja no n8n)')+'</code></p>'
+          + '<p style="margin-top:10px;color:var(--cinza);">Peça pro lojista trocar a senha no primeiro acesso. Próximo passo: conectar o WhatsApp da loja na tela de QR Code.</p>'
+          + '</div>';
+        document.getElementById('formNovaLoja').reset();
+      } catch (erro) {
+        console.error(erro);
+        resultado.innerHTML = '<div class="status erro" style="margin-top:14px;padding:10px;border-radius:10px;background:#fff0f1;color:var(--vermelho);">❌ '+escapeHtml(erro.message)+'</div>';
+      } finally {
+        botao.disabled = false; botao.textContent = '🏬 Criar loja';
+      }
+    }
+
     function renderPlaceholderModule(name) {
       const icons = {'Produtos':'🍪','Clientes':'👥','Formas de pagamento':'💳','Formas de entrega':'🛵','Endereço Retirada':'📍','Configurações':'⚙️'};
       document.getElementById('moduleContent').innerHTML = '<div class="module-panel empty-module"><div class="empty-state-icon">'+(icons[name]||'⚙️')+'</div><h2>'+escapeHtml(name)+'</h2><p style="margin-top:10px;">Este módulo será conectado ao Supabase na próxima etapa.</p></div>';
@@ -4289,6 +4379,7 @@
        ABRIR SISTEMA / LOGOUT
     ====================================================== */
     let MEU_LOJA_ID = null;
+    let SOU_SUPER_ADMIN = false;
 
     // Tabelas isoladas via relação com outra tabela (não têm coluna
     // loja_id própria) — não devem receber esse campo nos inserts.
@@ -4309,11 +4400,32 @@
       return null;
     }
 
+    // super_admin é um valor já previsto na coluna "perfil" de usuarios
+    // (constraint ADMIN/GERENTE/ATENDENTE/super_admin) — usado pela conta
+    // de suporte (rikasolucoes@gmail.com), sem loja própria vinculada.
+    async function souSuperAdmin(userId) {
+      try {
+        const { data, error } = await supabaseClient
+          .from('usuarios')
+          .select('perfil')
+          .eq('id', userId)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) return data.perfil === 'super_admin';
+      } catch (e) {
+        console.warn('Não foi possível checar o perfil do usuário:', e);
+      }
+      return false;
+    }
+
     async function abrirSistema(user, restaurandoSessao=false) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       document.getElementById('userName').textContent = await obterNomeUsuarioPorEmail(user.email);
       MEU_LOJA_ID = await obterMeuLojaId(user.id);
+      SOU_SUPER_ADMIN = await souSuperAdmin(user.id);
+      const menuNovaLoja = document.getElementById('menuNovaLojaBtn');
+      if (menuNovaLoja) menuNovaLoja.style.display = SOU_SUPER_ADMIN ? '' : 'none';
 
       // F5/reabertura mantém a sessão enquanto ainda estiver dentro da janela
       // de 1 hora. Um novo login também reinicia essa janela.
@@ -4822,7 +4934,7 @@
       const moduleContent = document.getElementById('moduleContent');
       document.getElementById('pageTitle').textContent = name;
       const subtitles = {
-        'Dashboard':'Visão geral da sua loja','Pedidos':'Acompanhe e gerencie todos os pedidos','Produtos':'Cadastre e gerencie os produtos da KUKI','Clientes':'Consulte os clientes cadastrados','Formas de pagamento':'Gerencie as opções de pagamento','Formas de entrega':'Gerencie as formas de entrega','Endereço Retirada':'Cadastre os endereços e defina o endereço ativo do dia','Horários':'Defina os horários de funcionamento da loja','Configurações':'Configurações gerais do sistema','Financeiro':'Acompanhe vendas, despesas e resultado financeiro','Análises':'Indicadores, tendências e inteligência da loja','Relatórios':'Relatórios exportáveis com os dados da sua loja','Cupons':'Cadastre cupons de desconto e acompanhe onde foram usados'
+        'Dashboard':'Visão geral da sua loja','Pedidos':'Acompanhe e gerencie todos os pedidos','Produtos':'Cadastre e gerencie os produtos da KUKI','Clientes':'Consulte os clientes cadastrados','Formas de pagamento':'Gerencie as opções de pagamento','Formas de entrega':'Gerencie as formas de entrega','Endereço Retirada':'Cadastre os endereços e defina o endereço ativo do dia','Horários':'Defina os horários de funcionamento da loja','Configurações':'Configurações gerais do sistema','Financeiro':'Acompanhe vendas, despesas e resultado financeiro','Análises':'Indicadores, tendências e inteligência da loja','Relatórios':'Relatórios exportáveis com os dados da sua loja','Cupons':'Cadastre cupons de desconto e acompanhe onde foram usados','Nova Loja':'Cadastre uma nova loja cliente na plataforma QueroJá'
       };
       document.getElementById('pageSubtitle').textContent = subtitles[name] || '';
       if (name === 'Dashboard') { dashboard.style.display='block'; moduleContent.style.display='none'; atualizarDashboard(); return; }
@@ -4833,6 +4945,7 @@
       else if (name === 'Endereço Retirada') renderEnderecosRetiradaModule();
       else if (name === 'Análises') renderKukiIAModule();
       else if (name === 'Relatórios') renderRelatoriosModule();
+      else if (name === 'Nova Loja') renderNovaLojaModule();
       else if (CRUD_TABLES[name]) renderCrudModule(name);
       else renderPlaceholderModule(name);
     }
