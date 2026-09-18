@@ -73,11 +73,16 @@
     <option value="">Carregando lojas...</option>
   </select>
 
-  <button id="btnGerar" onclick="gerarQrCode()" disabled>Gerar QR Code</button>
+  <button id="btnGerar" onclick="gerarQrCode(false)" disabled>Gerar QR Code</button>
 
   <div id="resultado"></div>
 
   <p class="dica">No celular da loja: WhatsApp → Aparelhos conectados → Conectar um aparelho → escaneie o código. O QR expira em segundos; se der tempo esgotado, clique em "Gerar QR Code" de novo.</p>
+
+  <p class="dica" style="margin-top:6px;">
+    Já desconectou pelo celular e mesmo assim aparece "já está conectado"?
+    <a onclick="gerarQrCode(true)" style="color:var(--vermelho); cursor:pointer; text-decoration:underline; font-weight:bold;">Forçar novo QR Code</a>
+  </p>
 </div>
 
 <script>
@@ -171,7 +176,7 @@ async function carregarLojas(){
   botao.disabled = false;
 }
 
-async function gerarQrCode(){
+async function gerarQrCode(forcar){
   const sessao = document.getElementById("sessao").value;
   const botao = document.getElementById("btnGerar");
   const resultado = document.getElementById("resultado");
@@ -185,11 +190,13 @@ async function gerarQrCode(){
   if (!session) { await sair(); return; }
 
   botao.disabled = true;
-  botao.textContent = "Gerando...";
+  botao.textContent = forcar ? "Desconectando..." : "Gerando...";
   resultado.innerHTML = "";
 
   try {
-    const resposta = await fetch(WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao), {
+    let url = WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao);
+    if (forcar) url += "&forcar=1";
+    const resposta = await fetch(url, {
       headers: { "Authorization": "Bearer " + session.access_token }
     });
     const dados = await resposta.json();
