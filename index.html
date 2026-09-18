@@ -2373,7 +2373,7 @@
         <div class="module-panel" style="margin-bottom:18px;">
           <div class="module-toolbar">
             <div>
-              <h2>📈 Análises da KUKI</h2>
+              <h2>📈 Análises da loja</h2>
               <p style="color:var(--cinza);margin-top:6px;">Indicadores, tendências e leitura dos dados da loja.</p>
             </div>
             <div class="actions-inline">
@@ -2416,8 +2416,8 @@
 
         <div class="ai-module" style="margin-top:18px;">
           <div class="ai-chat">
-            <div class="ai-chat-head"><div class="ai-orb">🤖</div><div><h2 style="font-size:18px;">KUKI Inteligência</h2><div class="ai-status">Assistente de gestão</div></div></div>
-            <div class="ai-chat-body" id="aiChatBody"><div class="ai-message assistant">Olá! Eu sou a KUKI Inteligência. Posso analisar vendas, pedidos, produtos, clientes e indicadores financeiros com base nos dados disponíveis no gerencial. 🍪</div></div>
+            <div class="ai-chat-head"><div class="ai-orb">🤖</div><div><h2 style="font-size:18px;">QueroJá Inteligência</h2><div class="ai-status">Assistente de gestão</div></div></div>
+            <div class="ai-chat-body" id="aiChatBody"><div class="ai-message assistant">Olá! Eu sou a QueroJá Inteligência. Posso analisar vendas, pedidos, produtos, clientes e indicadores financeiros da sua loja com base nos dados disponíveis no gerencial. 📊</div></div>
             <div class="ai-chat-input"><textarea id="aiQuestion" placeholder="Ex.: Como estão as vendas nos últimos 30 dias?"></textarea><button class="ai-send" id="aiSendButton" onclick="perguntarKukiIA()">ENVIAR</button></div>
           </div>
           <div class="panel"><h2 style="margin-bottom:14px;">Perguntas rápidas</h2><div class="ai-suggestions">`+
@@ -2435,7 +2435,7 @@
       const question=input.value.trim();if(!question)return;adicionarMensagemIA(question,'user');input.value='';btn.disabled=true;btn.textContent='ANALISANDO...';
       try{
         const d=dashboardAnalytics||await calcularDashboardAnalytics(dashboardPeriodo);
-        const payload={cliente:'KUKI',sistema:'KUKI Gerencial',pergunta:question,periodo_dias:dashboardPeriodo,
+        const payload={cliente:MEU_LOJA_NOME||('loja_'+MEU_LOJA_ID),loja_id:MEU_LOJA_ID,sistema:'QueroJá Gerencial',pergunta:question,periodo_dias:dashboardPeriodo,
           indicadores:{faturamento:d.revenue,pedidos:d.orders,ticket_medio:d.ticket,variacao_faturamento:d.revenueTrend,variacao_pedidos:d.ordersTrend},
           pedidos_recentes:pedidosCache.slice(0,30).map(p=>({id:getPedidoId(p),status:getPedidoStatus(p),total:getPedidoTotal(p),data:getValue(p,['created_at','DATA','data','data_pedido','DATA_PEDIDO'],''),cliente:getValue(p,['cliente_nome','CLIENTE_NOME','nome_cliente','NOME_CLIENTE','nome','NOME'],'')}))};
         const response=await fetch(KUKI_IA_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -3438,7 +3438,7 @@
           ? 'Pedidos que acabaram de chegar e ainda não foram tratados (status NOVO ou aguardando confirmação de pagamento via Pix/link).'
           : (filtroPedidosAtivo === 'APROVADOS'
             ? 'Pedidos com pagamento confirmado (Pix ou link de pagamento) e em produção.'
-            : 'Todos os pedidos recebidos pela KUKI, independentemente do status. Pedidos ENTREGUES ficam somente para consulta.'));
+            : 'Todos os pedidos recebidos pela loja, independentemente do status. Pedidos ENTREGUES ficam somente para consulta.'));
 
       const botaoFiltro = filtroPedidosAtivo !== 'TODOS'
         ? '<button class="secondary-button" type="button" onclick="limparFiltroPedidos()">← Ver todos</button>'
@@ -4105,7 +4105,7 @@
       try {
         const atuais = await carregarEnderecosRetirada();
         if (!id && atuais.length >= 3) {
-          showToast('Limite atingido', 'O KUKI permite até 3 endereços de retirada.');
+          showToast('Limite atingido', 'A loja permite até 3 endereços de retirada.');
           return;
         }
 
@@ -4228,6 +4228,50 @@
       }
     }
 
+    let configuracoesLojaRowId = null;
+
+    async function renderConfiguracoesModule() {
+      const container = document.getElementById('moduleContent');
+      if (!container) return;
+      container.innerHTML = '<div class="module-panel"><div class="module-toolbar"><div><h2>⚙️ Configurações</h2><p style="color:var(--cinza);margin-top:6px;">Informações públicas exibidas na página de pedidos da sua loja.</p></div></div><div class="crud-form-box"><form id="formConfiguracoesLoja" onsubmit="event.preventDefault(); salvarConfiguracoesLoja();"><div class="crud-grid"><label class="crud-field">Instagram da loja<input id="configInstagramUrl" type="url" maxlength="255" placeholder="https://www.instagram.com/sualoja"><small style="font-weight:400;color:var(--cinza);">Link completo do seu perfil. Aparece como botão no rodapé da página de pedidos do cliente final — fica oculto se ficar em branco.</small></label></div><div class="crud-actions"><button class="primary-button" type="submit">💾 Salvar</button></div></form></div></div>';
+      try {
+        const rows = await restRequest('CONFIGURACOES_LOJA', '?loja_id=eq.' + MEU_LOJA_ID + '&select=id,INSTAGRAM_URL&limit=1');
+        const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+        configuracoesLojaRowId = row ? row.id : null;
+        const input = document.getElementById('configInstagramUrl');
+        if (input && row && row.INSTAGRAM_URL) input.value = row.INSTAGRAM_URL;
+      } catch (err) {
+        console.error('CONFIGURAÇÕES LOJA LOAD:', err);
+        showToast('Erro', 'Não foi possível carregar as configurações da loja.');
+      }
+    }
+
+    async function salvarConfiguracoesLoja() {
+      const input = document.getElementById('configInstagramUrl');
+      if (!input) return;
+      const valor = input.value.trim();
+      try {
+        if (configuracoesLojaRowId) {
+          await restRequest('CONFIGURACOES_LOJA', '?id=eq.' + configuracoesLojaRowId, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ INSTAGRAM_URL: valor || null })
+          });
+        } else {
+          await restRequest('CONFIGURACOES_LOJA', '', {
+            method: 'POST',
+            headers: { 'Prefer': 'return=representation' },
+            body: JSON.stringify({ INSTAGRAM_URL: valor || null })
+          });
+        }
+        showToast('Salvo', 'Configurações da loja atualizadas.');
+        renderConfiguracoesModule();
+      } catch (err) {
+        console.error('CONFIGURAÇÕES LOJA SAVE:', err);
+        showToast('Erro', err.message || 'Não foi possível salvar as configurações.');
+      }
+    }
+
     function renderPlaceholderModule(name) {
       const icons = {'Produtos':'🍪','Clientes':'👥','Formas de pagamento':'💳','Formas de entrega':'🛵','Endereço Retirada':'📍','Configurações':'⚙️'};
       document.getElementById('moduleContent').innerHTML = '<div class="module-panel empty-module"><div class="empty-state-icon">'+(icons[name]||'⚙️')+'</div><h2>'+escapeHtml(name)+'</h2><p style="margin-top:10px;">Este módulo será conectado ao Supabase na próxima etapa.</p></div>';
@@ -4305,6 +4349,7 @@
     ====================================================== */
     let MEU_LOJA_ID = null;
     let MEU_PERFIL = null;
+    let MEU_LOJA_NOME = null;
 
     // Tabelas isoladas via relação com outra tabela (não têm coluna
     // loja_id própria) — não devem receber esse campo nos inserts.
@@ -4334,6 +4379,15 @@
       const { loja_id, perfil } = await obterMeuLojaEPerfil(user.id);
       MEU_LOJA_ID = loja_id;
       MEU_PERFIL = perfil;
+      MEU_LOJA_NOME = null;
+      if (MEU_LOJA_ID) {
+        try {
+          const { data: lojaData } = await supabaseClient.from('lojas').select('nome').eq('id', MEU_LOJA_ID).maybeSingle();
+          if (lojaData && lojaData.nome) MEU_LOJA_NOME = lojaData.nome;
+        } catch (e) {
+          console.warn('Não foi possível obter o nome da loja:', e);
+        }
+      }
       const menuLojasBtn = document.getElementById('menuLojasBtn');
       if (menuLojasBtn) menuLojasBtn.style.display = (MEU_PERFIL === 'super_admin') ? '' : 'none';
 
@@ -4484,7 +4538,7 @@
 
     function renderFinanceiroModule() {
       const container=document.getElementById('moduleContent');
-      container.innerHTML=`<div class="module-panel"><div class="module-toolbar"><div><h2>💰 Financeiro</h2><p style="color:var(--cinza);margin-top:6px;">Acompanhe as vendas da KUKI e controle também as despesas.</p></div><div class="actions-inline"><button type="button" class="secondary-button" id="finRefresh">↻ Atualizar</button><button type="button" class="secondary-button" id="finCategories">🏷️ Categorias</button><button type="button" class="primary-button" id="finNew">＋ Nova despesa</button></div></div><div id="financeiroBody"><div class="empty-state"><div class="empty-state-icon">💰</div><strong>Carregando financeiro...</strong></div></div></div>`;
+      container.innerHTML=`<div class="module-panel"><div class="module-toolbar"><div><h2>💰 Financeiro</h2><p style="color:var(--cinza);margin-top:6px;">Acompanhe as vendas da sua loja e controle também as despesas.</p></div><div class="actions-inline"><button type="button" class="secondary-button" id="finRefresh">↻ Atualizar</button><button type="button" class="secondary-button" id="finCategories">🏷️ Categorias</button><button type="button" class="primary-button" id="finNew">＋ Nova despesa</button></div></div><div id="financeiroBody"><div class="empty-state"><div class="empty-state-icon">💰</div><strong>Carregando financeiro...</strong></div></div></div>`;
       document.getElementById('finRefresh').addEventListener('click', renderFinanceiroModule);
       document.getElementById('finCategories').addEventListener('click', finOpenCategories);
       document.getElementById('finNew').addEventListener('click', () => finOpenForm(null));
@@ -4846,7 +4900,7 @@
       const moduleContent = document.getElementById('moduleContent');
       document.getElementById('pageTitle').textContent = name;
       const subtitles = {
-        'Dashboard':'Visão geral da sua loja','Pedidos':'Acompanhe e gerencie todos os pedidos','Produtos':'Cadastre e gerencie os produtos da KUKI','Clientes':'Consulte os clientes cadastrados','Formas de pagamento':'Gerencie as opções de pagamento','Formas de entrega':'Gerencie as formas de entrega','Endereço Retirada':'Cadastre os endereços e defina o endereço ativo do dia','Horários':'Defina os horários de funcionamento da loja','Configurações':'Configurações gerais do sistema','Financeiro':'Acompanhe vendas, despesas e resultado financeiro','Análises':'Indicadores, tendências e inteligência da loja','Relatórios':'Relatórios exportáveis com os dados da sua loja','Cupons':'Cadastre cupons de desconto e acompanhe onde foram usados','Lojas':'Cadastre e gerencie as lojas (clientes) da plataforma QueroJá'
+        'Dashboard':'Visão geral da sua loja','Pedidos':'Acompanhe e gerencie todos os pedidos','Produtos':'Cadastre e gerencie os produtos da sua loja','Clientes':'Consulte os clientes cadastrados','Formas de pagamento':'Gerencie as opções de pagamento','Formas de entrega':'Gerencie as formas de entrega','Endereço Retirada':'Cadastre os endereços e defina o endereço ativo do dia','Horários':'Defina os horários de funcionamento da loja','Configurações':'Configurações gerais da sua loja','Financeiro':'Acompanhe vendas, despesas e resultado financeiro','Análises':'Indicadores, tendências e inteligência da loja','Relatórios':'Relatórios exportáveis com os dados da sua loja','Cupons':'Cadastre cupons de desconto e acompanhe onde foram usados','Lojas':'Cadastre e gerencie as lojas (clientes) da plataforma QueroJá'
       };
       document.getElementById('pageSubtitle').textContent = subtitles[name] || '';
       if (name === 'Dashboard') { dashboard.style.display='block'; moduleContent.style.display='none'; atualizarDashboard(); return; }
@@ -4857,6 +4911,7 @@
       else if (name === 'Endereço Retirada') renderEnderecosRetiradaModule();
       else if (name === 'Análises') renderKukiIAModule();
       else if (name === 'Relatórios') renderRelatoriosModule();
+      else if (name === 'Configurações') renderConfiguracoesModule();
       else if (CRUD_TABLES[name]) renderCrudModule(name);
       else renderPlaceholderModule(name);
     }
