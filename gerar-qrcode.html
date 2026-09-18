@@ -77,7 +77,7 @@
 
   <div id="resultado"></div>
 
-  <p class="dica">No celular da loja: WhatsApp → Aparelhos conectados → Conectar um aparelho → escaneie o código. O QR expira em segundos; se der tempo esgotado, clique em "Gerar QR Code" de novo.</p>
+  <p class="dica">No celular da loja: WhatsApp → Aparelhos conectados → Conectar um aparelho → escaneie o código. O QR se renova sozinho a cada ~18 segundos enquanto você não escaneia — não precisa clicar de novo.</p>
 
   <p class="dica" style="margin-top:6px;">
     Já desconectou pelo celular e mesmo assim aparece "já está conectado"?
@@ -89,11 +89,21 @@
 const WEBHOOK_URL = "https://n8n.rikasolucoes.com.br/webhook/queroja-qrcode";
 const SUPABASE_URL = "https://delakuvbbayovkpxemgm.supabase.co";
 const SUPABASE_KEY = "sb_publishable_FqBkrIbKuNSmh78DidDpow_30o7P4kP";
+const POLL_INTERVAL_MS = 18000; // WhatsApp troca o QR a cada ~20s; renovamos um pouco antes
+const POLL_MAX_TENTATIVAS = 6;  // ~ acompanha os 120s de autoClose do WPPConnect
 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const cardLogin = document.getElementById("cardLogin");
 const cardApp = document.getElementById("cardApp");
+
+let pollTimer = null;
+let pollTentativas = 0;
+
+function pararPoll(){
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  pollTentativas = 0;
+}
 
 function normalizarUsuario(usuario){
   return (usuario || "").trim().toLowerCase().replace(/\s+/g, "");
@@ -138,6 +148,7 @@ document.getElementById("formLogin").addEventListener("submit", async function(e
 });
 
 async function sair(){
+  pararPoll();
   await supabaseClient.auth.signOut();
   cardApp.style.display = "none";
   cardLogin.style.display = "block";
@@ -176,10 +187,69 @@ async function carregarLojas(){
   botao.disabled = false;
 }
 
+async function chamarWebhook(sessao, forcar, session){
+  let url = WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao);
+  if (forcar) url += "&forcar=1";
+  const resposta = await fetch(url, {
+    headers: { "Authorization": "Bearer " + session.access_token }
+  });
+  const dados = await resposta.json();
+  return { ok: resposta.ok, dados };
+}
+
+function mostrarQr(dados){
+  document.getElementById("resultado").innerHTML =
+    '<img id="qrImg" src="' + dados.qrcode + '" alt="QR Code do WhatsApp">' +
+    '<div class="status aguardando">🟡 Aguardando leitura do QR Code... (renovando sozinho)</div>';
+}
+
+function mostrarConectado(){
+  document.getElementById("resultado").innerHTML =
+    '<div class="status conectado">🟢 Conectado! O número já está vinculado ao sistema.</div>';
+}
+
+function mostrarErro(mensagem){
+  document.getElementById("resultado").innerHTML = '<div class="status erro">❌ ' + mensagem + '</div>';
+}
+
+async function poll(sessao){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { pararPoll(); await sair(); return; }
+
+  pollTentativas++;
+  if (pollTentativas > POLL_MAX_TENTATIVAS) {
+    pararPoll();
+    mostrarErro('Tempo esgotado esperando a leitura. Clique em "Gerar QR Code" para tentar de novo.');
+    return;
+  }
+
+  try {
+    const { ok, dados } = await chamarWebhook(sessao, false, session);
+    if (!ok || dados.erro) {
+      pararPoll();
+      mostrarErro(dados.mensagem || "Não foi possível continuar. Tente novamente.");
+      return;
+    }
+    if (dados.conectado) {
+      pararPoll();
+      mostrarConectado();
+      return;
+    }
+    if (dados.qrcode) {
+      mostrarQr(dados);
+    }
+  } catch (erro) {
+    console.error(erro);
+    // erro de rede pontual durante o polling: não desiste, tenta de novo no próximo ciclo
+  }
+}
+
 async function gerarQrCode(forcar){
   const sessao = document.getElementById("sessao").value;
   const botao = document.getElementById("btnGerar");
   const resultado = document.getElementById("resultado");
+
+  pararPoll();
 
   if (!sessao) {
     resultado.innerHTML = '<div class="status erro">❌ Selecione uma loja.</div>';
@@ -194,25 +264,22 @@ async function gerarQrCode(forcar){
   resultado.innerHTML = "";
 
   try {
-    let url = WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao);
-    if (forcar) url += "&forcar=1";
-    const resposta = await fetch(url, {
-      headers: { "Authorization": "Bearer " + session.access_token }
-    });
-    const dados = await resposta.json();
+    const { ok, dados } = await chamarWebhook(sessao, forcar, session);
 
-    if (!resposta.ok || dados.erro) {
-      resultado.innerHTML = '<div class="status erro">❌ ' + (dados.mensagem || "Não foi possível gerar o QR Code.") + '</div>';
+    if (!ok || dados.erro) {
+      mostrarErro(dados.mensagem || "Não foi possível gerar o QR Code.");
+    } else if (dados.conectado) {
+      mostrarConectado();
     } else if (dados.qrcode) {
-      resultado.innerHTML =
-        '<img id="qrImg" src="' + dados.qrcode + '" alt="QR Code do WhatsApp">' +
-        '<div class="status aguardando">🟡 Aguardando leitura do QR Code...</div>';
+      mostrarQr(dados);
+      pollTentativas = 0;
+      pollTimer = setInterval(() => poll(sessao), POLL_INTERVAL_MS);
     } else {
-      resultado.innerHTML = '<div class="status conectado">🟢 Este número já está conectado. Não é preciso escanear nada.</div>';
+      mostrarErro("Não foi possível obter o QR Code agora. Tente novamente em instantes.");
     }
   } catch (erro) {
     console.error(erro);
-    resultado.innerHTML = '<div class="status erro">❌ Erro ao falar com o servidor. Tente novamente em instantes.</div>';
+    mostrarErro("Erro ao falar com o servidor. Tente novamente em instantes.");
   } finally {
     botao.disabled = false;
     botao.textContent = "Gerar QR Code";
