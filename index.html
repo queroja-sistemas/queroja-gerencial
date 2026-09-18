@@ -54,9 +54,7 @@
       justify-content: center;
       align-items: center;
       padding: 25px;
-      background:
-        radial-gradient(circle at top left, #f9e7d6, transparent 35%),
-        linear-gradient(135deg, #fff8f2, #ead8c8);
+      background: linear-gradient(135deg, #ffc300 0%, #f2a900 22%, var(--vermelho-claro) 55%, var(--vermelho) 78%, var(--vermelho-escuro) 100%);
     }
 
     .login-card {
@@ -196,43 +194,16 @@
     }
 
     .sidebar-logo {
-      padding: 10px 15px 20px;
+      padding: 10px 15px 28px;
       text-align: center;
-      position: relative;
     }
 
     .sidebar-logo img {
-      width: 120px;
-      height: 120px;
-      object-fit: contain;
+      width: 160px;
       max-width: 100%;
       background: #fff8f2;
       border-radius: 14px;
       padding: 8px;
-    }
-
-    .sidebar-logo-nome {
-      margin-top: 10px;
-      font-size: 15px;
-      font-weight: 800;
-      color: #fff;
-      word-break: break-word;
-    }
-
-    .sidebar-logo-trocar {
-      display: inline-block;
-      margin-top: 6px;
-      background: none;
-      border: none;
-      color: rgba(255,255,255,0.75);
-      font-size: 12px;
-      text-decoration: underline;
-      cursor: pointer;
-      padding: 2px 4px;
-    }
-
-    .sidebar-logo-trocar:hover {
-      color: #fff;
     }
 
     .sidebar-title {
@@ -1080,8 +1051,6 @@
         class="login-logo"
       >
 
-      <h1 class="login-title">QUEROJÁ GERENCIAL</h1>
-
       <p class="login-subtitle">
         Acesse o sistema de gerenciamento da loja
       </p>
@@ -1139,16 +1108,9 @@
 
     <aside class="sidebar" id="mainMenu">
 
-      <div class="sidebar-logo">
-        <img id="sidebarLojaLogo" src="logo-queroja-transparente.png" alt="Logo da loja">
-        <div class="sidebar-logo-nome" id="sidebarLojaNome"></div>
-        <button type="button" class="sidebar-logo-trocar" id="sidebarTrocarLogo">Trocar logo</button>
-        <input type="file" id="sidebarLogoInput" accept="image/*" style="display:none">
-      </div>
-
       <div class="sidebar-welcome">
         <strong>Bem-vindo! 🍪</strong>
-        <span id="sidebarWelcomeTexto">Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
+        <span>Gerencie sua loja QueroJá, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
       </div>
 
       <nav class="menu">
@@ -1605,10 +1567,6 @@
         } catch (e) {
           console.warn('Não foi possível anexar loja_id ao corpo da requisição:', e);
         }
-      }
-
-      if (method === 'GET' && !TABELAS_SEM_LOJA_ID.has(table) && MEU_LOJA_ID && path.indexOf('loja_id=') === -1) {
-        path += (path.includes('?') ? '&' : '?') + 'loja_id=eq.' + encodeURIComponent(MEU_LOJA_ID);
       }
 
       const headers = {
@@ -4334,158 +4292,28 @@
 
     // Tabelas isoladas via relação com outra tabela (não têm coluna
     // loja_id própria) — não devem receber esse campo nos inserts.
-    const TABELAS_SEM_LOJA_ID = new Set(['ITENS_PEDIDO', 'itens_pedido', 'CUPOM_USOS', 'cupom_usos', 'lojas', 'LOJAS']);
-
-    let SOU_SUPER_ADMIN = false;
+    const TABELAS_SEM_LOJA_ID = new Set(['ITENS_PEDIDO', 'itens_pedido', 'CUPOM_USOS', 'cupom_usos']);
 
     async function obterMeuLojaId(userId) {
       try {
         const { data, error } = await supabaseClient
           .from('usuarios')
-          .select('loja_id,perfil')
+          .select('loja_id')
           .eq('id', userId)
           .limit(1)
           .maybeSingle();
-        if (!error && data) {
-          SOU_SUPER_ADMIN = data.perfil === 'super_admin';
-          return data.loja_id;
-        }
+        if (!error && data) return data.loja_id;
       } catch (e) {
         console.warn('Não foi possível obter a loja do usuário:', e);
       }
       return null;
     }
 
-    const SUPORTE_LOJA_STORAGE_KEY = 'queroja_suporte_loja_id';
-
-    async function listarLojasParaSuporte(){
-      const { data, error } = await supabaseClient.from('lojas').select('id,nome,slug').order('nome');
-      if (error) { console.error('LISTAR LOJAS:', error); return []; }
-      return data || [];
-    }
-
-    function mostrarSeletorDeLoja(lojas, permitirFechar){
-      document.getElementById('modalSeletorLoja')?.remove();
-      const modal = document.createElement('div');
-      modal.className = 'modal-overlay';
-      modal.id = 'modalSeletorLoja';
-      document.body.classList.add('modal-open');
-      const opcoes = lojas.map(l => `<button type="button" class="secondary-button" style="width:100%;text-align:left;margin-bottom:8px;" data-loja-id="${l.id}">🏬 ${escapeHtml(l.nome || l.slug)}</button>`).join('');
-      modal.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
-        <div class="modal-header"><h2>🛠️ Modo suporte</h2>${permitirFechar ? '<button type="button" class="icon-button" id="seletorLojaClose">✕</button>' : ''}</div>
-        <p style="color:var(--cinza);margin-bottom:14px;">Escolha qual loja você quer visualizar e gerenciar agora.</p>
-        ${opcoes || '<p>Nenhuma loja cadastrada ainda.</p>'}
-      </div>`;
-      document.body.appendChild(modal);
-      const fechar = () => { modal.remove(); document.body.classList.remove('modal-open'); };
-      if (permitirFechar) {
-        modal.querySelector('#seletorLojaClose')?.addEventListener('click', fechar);
-        modal.addEventListener('click', (event) => { if (event.target === modal) fechar(); });
-      }
-      modal.querySelectorAll('[data-loja-id]').forEach(button => {
-        button.addEventListener('click', async () => {
-          const lojaId = Number(button.getAttribute('data-loja-id'));
-          sessionStorage.setItem(SUPORTE_LOJA_STORAGE_KEY, String(lojaId));
-          MEU_LOJA_ID = lojaId;
-          fechar();
-          await carregarBrandingDaLoja();
-          atualizarBannerSuporte();
-          await carregarPedidos(true);
-        });
-      });
-    }
-
-    function atualizarBannerSuporte(){
-      let banner = document.getElementById('bannerModoSuporte');
-      if (!SOU_SUPER_ADMIN) { banner?.remove(); return; }
-      if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'bannerModoSuporte';
-        document.getElementById('mainMenu').prepend(banner);
-      }
-      banner.style.cssText = 'background:#3a0c0c;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:8px 10px;margin:0 0 14px;font-size:12px;color:#fff;';
-      banner.innerHTML = `🛠️ Modo suporte<br><button type="button" id="botaoTrocarLoja" style="background:none;border:none;color:#ffd7d7;text-decoration:underline;cursor:pointer;font-size:12px;padding:2px 0;">Trocar de loja</button>`;
-      document.getElementById('botaoTrocarLoja').addEventListener('click', async () => {
-        const lojas = await listarLojasParaSuporte();
-        mostrarSeletorDeLoja(lojas, true);
-      });
-    }
-
-    async function resolverLojaAtiva(){
-      if (!SOU_SUPER_ADMIN) return;
-      const salva = sessionStorage.getItem(SUPORTE_LOJA_STORAGE_KEY);
-      if (salva) { MEU_LOJA_ID = Number(salva); atualizarBannerSuporte(); return; }
-      const lojas = await listarLojasParaSuporte();
-      atualizarBannerSuporte();
-      await new Promise((resolve) => {
-        document.getElementById('modalSeletorLoja')?.remove();
-        mostrarSeletorDeLoja(lojas, false);
-        const observer = new MutationObserver(() => {
-          if (!document.getElementById('modalSeletorLoja')) { observer.disconnect(); resolve(); }
-        });
-        observer.observe(document.body, { childList: true });
-      });
-    }
-
-    async function carregarBrandingDaLoja(){
-      const logoImg = document.getElementById('sidebarLojaLogo');
-      const nomeEl = document.getElementById('sidebarLojaNome');
-      const welcomeEl = document.getElementById('sidebarWelcomeTexto');
-      if(!MEU_LOJA_ID){
-        welcomeEl.textContent = 'Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.';
-        return;
-      }
-      try {
-        const { data, error } = await supabaseClient
-          .from('lojas').select('nome,logo_url').eq('id', MEU_LOJA_ID).maybeSingle();
-        if(error) throw error;
-        const nome = (data && data.nome) || '';
-        if(data && data.logo_url) logoImg.src = data.logo_url;
-        nomeEl.textContent = nome;
-        welcomeEl.textContent = nome
-          ? `Gerencie sua loja ${nome}, acompanhe os pedidos e mantenha tudo sempre atualizado.`
-          : 'Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.';
-      } catch(e) {
-        console.warn('Não foi possível carregar os dados da loja:', e);
-      }
-    }
-
-    document.getElementById('sidebarTrocarLogo').addEventListener('click', () => {
-      document.getElementById('sidebarLogoInput').click();
-    });
-    document.getElementById('sidebarLogoInput').addEventListener('change', async (event) => {
-      const file = event.target.files && event.target.files[0];
-      event.target.value = '';
-      if(!file) return;
-      if(!file.type || !file.type.startsWith('image/')) return showToast('Erro', 'Selecione um arquivo de imagem.');
-      if(file.size > MAX_PRODUTO_IMAGEM_BYTES) return showToast('Erro', 'A logo deve ter no máximo 5 MB.');
-      if(!MEU_LOJA_ID) return showToast('Erro', 'Não foi possível identificar sua loja.');
-      try {
-        const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g,'') || 'png';
-        const path = 'lojas/' + MEU_LOJA_ID + '-' + Date.now() + '.' + ext;
-        const { error: uploadError } = await supabaseClient.storage.from(KUKI_STORAGE_BUCKET)
-          .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type });
-        if(uploadError) throw uploadError;
-        const publicData = supabaseClient.storage.from(KUKI_STORAGE_BUCKET).getPublicUrl(path);
-        const url = publicData && publicData.data ? publicData.data.publicUrl : '';
-        if(!url) throw new Error('Não foi possível obter a URL pública da imagem.');
-        const { error: rpcError } = await supabaseClient.rpc('atualizar_minha_loja', { p_logo_url: url });
-        if(rpcError) throw rpcError;
-        document.getElementById('sidebarLojaLogo').src = url;
-        showToast('Sucesso', 'Logo da loja atualizada.');
-      } catch(e) {
-        console.error('TROCAR LOGO:', e);
-        showToast('Erro ao trocar logo', e.message || 'Não foi possível enviar a imagem.');
-      }
-    });
-
     async function abrirSistema(user, restaurandoSessao=false) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       document.getElementById('userName').textContent = await obterNomeUsuarioPorEmail(user.email);
       MEU_LOJA_ID = await obterMeuLojaId(user.id);
-      await resolverLojaAtiva();
-      await carregarBrandingDaLoja();
 
       // F5/reabertura mantém a sessão enquanto ainda estiver dentro da janela
       // de 1 hora. Um novo login também reinicia essa janela.
@@ -4506,8 +4334,6 @@
       pararMonitorInatividade();
       await pararRealtimePedidos();
       pedidosConhecidos = new Set();
-      sessionStorage.removeItem(SUPORTE_LOJA_STORAGE_KEY);
-      document.getElementById('bannerModoSuporte')?.remove();
       await supabaseClient.auth.signOut();
       appScreen.style.display = 'none'; loginScreen.style.display = 'flex';
       document.getElementById('username').value = ''; document.getElementById('password').value = '';
