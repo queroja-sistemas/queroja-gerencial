@@ -1109,8 +1109,8 @@
     <aside class="sidebar" id="mainMenu">
 
       <div class="sidebar-welcome">
-        <strong>Bem-vindo! 🍪</strong>
-        <span>Gerencie sua loja QueroJá, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
+        <strong id="sidebarWelcomeTitle">Bem-vindo!</strong>
+        <span id="sidebarWelcomeText">Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.</span>
       </div>
 
       <nav class="menu">
@@ -4387,6 +4387,12 @@
         } catch (e) {
           console.warn('Não foi possível obter o nome da loja:', e);
         }
+      }
+      const sidebarWelcomeText = document.getElementById('sidebarWelcomeText');
+      if (sidebarWelcomeText) {
+        sidebarWelcomeText.textContent = MEU_LOJA_NOME
+          ? 'Gerencie a loja ' + MEU_LOJA_NOME + ', acompanhe os pedidos e mantenha tudo sempre atualizado.'
+          : 'Gerencie sua loja, acompanhe os pedidos e mantenha tudo sempre atualizado.';
       }
       const menuLojasBtn = document.getElementById('menuLojasBtn');
       if (menuLojasBtn) menuLojasBtn.style.display = (MEU_PERFIL === 'super_admin') ? '' : 'none';
