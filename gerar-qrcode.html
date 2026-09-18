@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>QueroJá - Conectar WhatsApp</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --vermelho:#a9001d; --creme:#f8eee4; --texto:#352c2c; --cinza:#777; --borda:#e8ddd3; --verde:#1f9d55;
@@ -20,11 +21,12 @@
   h1{font-size:20px; margin-bottom:6px;}
   p.sub{color:var(--cinza); font-size:14px; margin-bottom:22px;}
   label{display:block; text-align:left; font-size:13px; font-weight:bold; margin-bottom:6px;}
-  select, button{
+  select, input, button{
     width:100%; height:48px; border-radius:12px; font-size:15px; margin-bottom:14px;
     border:1px solid var(--borda); font-family:inherit;
   }
-  select{padding:0 12px; background:#fff;}
+  select, input{padding:0 12px; background:#fff;}
+  select:disabled{background:#f2f2f2; color:var(--cinza);}
   button{
     background:var(--vermelho); color:#fff; border:none; font-weight:bold; cursor:pointer;
   }
@@ -36,20 +38,42 @@
   .status.conectado{background:#e8f8ee; color:var(--verde);}
   .status.erro{background:#fff0f1; color:var(--vermelho);}
   .dica{font-size:12px; color:var(--cinza); margin-top:14px; line-height:1.5;}
+  .top-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
+  .top-row span{font-size:12px; color:var(--cinza);}
+  .top-row a{font-size:12px; color:var(--vermelho); cursor:pointer; text-decoration:underline;}
+  #loginErro{color:var(--vermelho); font-size:13px; margin-top:-6px; margin-bottom:10px; display:none;}
 </style>
 </head>
 <body>
 
-<div class="card">
+<div class="card" id="cardLogin">
+  <h1>🔒 Entrar</h1>
+  <p class="sub">Use o mesmo usuário e senha do painel QueroJá.</p>
+  <form id="formLogin">
+    <label for="usuario">Usuário</label>
+    <input type="text" id="usuario" autocomplete="username" required />
+    <label for="senha">Senha</label>
+    <input type="password" id="senha" autocomplete="current-password" required />
+    <div id="loginErro"></div>
+    <button type="submit" id="btnLogin">Entrar</button>
+  </form>
+</div>
+
+<div class="card" id="cardApp" style="display:none;">
+  <div class="top-row">
+    <span id="usuarioLogado"></span>
+    <a onclick="sair()">Sair</a>
+  </div>
+
   <h1>📲 Conectar WhatsApp</h1>
   <p class="sub">Gere o QR Code para conectar o número da loja ao sistema.</p>
 
   <label for="sessao">Loja</label>
-  <select id="sessao">
-    <option value="kuki">Kuki</option>
+  <select id="sessao" disabled>
+    <option value="">Carregando lojas...</option>
   </select>
 
-  <button id="btnGerar" onclick="gerarQrCode()">Gerar QR Code</button>
+  <button id="btnGerar" onclick="gerarQrCode()" disabled>Gerar QR Code</button>
 
   <div id="resultado"></div>
 
@@ -58,38 +82,140 @@
 
 <script>
 const WEBHOOK_URL = "https://n8n.rikasolucoes.com.br/webhook/queroja-qrcode";
+const SUPABASE_URL = "https://delakuvbbayovkpxemgm.supabase.co";
+const SUPABASE_KEY = "sb_publishable_FqBkrIbKuNSmh78DidDpow_30o7P4kP";
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const cardLogin = document.getElementById("cardLogin");
+const cardApp = document.getElementById("cardApp");
+
+function normalizarUsuario(usuario){
+  return (usuario || "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+async function obterEmailPorUsuario(usuario){
+  try {
+    const { data, error } = await supabaseClient.rpc("obter_email_login", { p_usuario: usuario });
+    if (error) return null;
+    return Array.isArray(data) ? (data[0] || null) : (data || null);
+  } catch (e) {
+    return null;
+  }
+}
+
+document.getElementById("formLogin").addEventListener("submit", async function(event){
+  event.preventDefault();
+  const usuario = normalizarUsuario(document.getElementById("usuario").value);
+  const senha = document.getElementById("senha").value;
+  const botao = document.getElementById("btnLogin");
+  const erro = document.getElementById("loginErro");
+
+  erro.style.display = "none";
+  botao.disabled = true;
+  botao.textContent = "Entrando...";
+
+  try {
+    const email = await obterEmailPorUsuario(usuario);
+    if (!email) throw new Error("Usuário ou senha inválidos.");
+
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
+    if (error) throw error;
+
+    await abrirApp();
+  } catch (e) {
+    erro.textContent = "Usuário ou senha inválidos.";
+    erro.style.display = "block";
+  } finally {
+    botao.disabled = false;
+    botao.textContent = "Entrar";
+  }
+});
+
+async function sair(){
+  await supabaseClient.auth.signOut();
+  cardApp.style.display = "none";
+  cardLogin.style.display = "block";
+  document.getElementById("senha").value = "";
+}
+
+async function abrirApp(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) return;
+
+  cardLogin.style.display = "none";
+  cardApp.style.display = "block";
+  document.getElementById("usuarioLogado").textContent = session.user.email;
+
+  await carregarLojas();
+}
+
+// A tabela "lojas" tem RLS: cada usuário só enxerga a própria loja,
+// e o super_admin enxerga todas. O banco já filtra sozinho.
+async function carregarLojas(){
+  const select = document.getElementById("sessao");
+  const botao = document.getElementById("btnGerar");
+
+  const { data: lojas, error } = await supabaseClient
+    .from("lojas")
+    .select("id,nome,slug")
+    .order("nome");
+
+  if (error || !lojas || lojas.length === 0) {
+    select.innerHTML = '<option value="">Nenhuma loja disponível</option>';
+    return;
+  }
+
+  select.innerHTML = lojas.map(loja => '<option value="' + loja.slug + '">' + loja.nome + '</option>').join("");
+  select.disabled = false;
+  botao.disabled = false;
+}
 
 async function gerarQrCode(){
   const sessao = document.getElementById("sessao").value;
   const botao = document.getElementById("btnGerar");
   const resultado = document.getElementById("resultado");
 
+  if (!sessao) {
+    resultado.innerHTML = '<div class="status erro">❌ Selecione uma loja.</div>';
+    return;
+  }
+
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { await sair(); return; }
+
   botao.disabled = true;
   botao.textContent = "Gerando...";
   resultado.innerHTML = "";
 
   try {
-    const resposta = await fetch(WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao));
+    const resposta = await fetch(WEBHOOK_URL + "?sessao=" + encodeURIComponent(sessao), {
+      headers: { "Authorization": "Bearer " + session.access_token }
+    });
     const dados = await resposta.json();
 
     if (!resposta.ok || dados.erro) {
-      resultado.innerHTML = `<div class="status erro">❌ ${dados.mensagem || "Não foi possível gerar o QR Code."}</div>`;
+      resultado.innerHTML = '<div class="status erro">❌ ' + (dados.mensagem || "Não foi possível gerar o QR Code.") + '</div>';
     } else if (dados.qrcode) {
-      resultado.innerHTML = `
-        <img id="qrImg" src="${dados.qrcode}" alt="QR Code do WhatsApp">
-        <div class="status aguardando">🟡 Aguardando leitura do QR Code...</div>
-      `;
+      resultado.innerHTML =
+        '<img id="qrImg" src="' + dados.qrcode + '" alt="QR Code do WhatsApp">' +
+        '<div class="status aguardando">🟡 Aguardando leitura do QR Code...</div>';
     } else {
-      resultado.innerHTML = `<div class="status conectado">🟢 Este número já está conectado. Não é preciso escanear nada.</div>`;
+      resultado.innerHTML = '<div class="status conectado">🟢 Este número já está conectado. Não é preciso escanear nada.</div>';
     }
   } catch (erro) {
     console.error(erro);
-    resultado.innerHTML = `<div class="status erro">❌ Erro ao falar com o servidor. Tente novamente em instantes.</div>`;
+    resultado.innerHTML = '<div class="status erro">❌ Erro ao falar com o servidor. Tente novamente em instantes.</div>';
   } finally {
     botao.disabled = false;
     botao.textContent = "Gerar QR Code";
   }
 }
+
+(async function(){
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) await abrirApp();
+})();
 </script>
 
 </body>
